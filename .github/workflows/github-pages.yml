@@ -1,65 +1,58 @@
-name: Deploy GitHub Pages
+name: Publish versioned Terms (incremental)
 
 on:
   push:
     tags:
-      - 'element-a/*'        # element-a: una versión por carpeta (e.g., element-a/1)
-      - 'element-b/*/v*'     # element-b: versiones por release (e.g., element-b/1/v1.0.0)
-      - 'general/v*'         # general: versiones por release (e.g., general/v1.0.0)
-
-permissions:
-  pages: write
-  id-token: write
+      - 'element-a/*'        # ej: element-a/abc123
+      - 'element-b/*/v*'     # ej: element-b/abc123/v1.0.0
+      - 'general/v*'         # ej: general/v1.2.3
+  workflow_dispatch:
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
+        with:
+          fetch-depth: 0
       - name: Prepare versioned paths
-        if: startsWith(github.ref, 'refs/tags/general/') || startsWith(github.ref, 'refs/tags/element-b/')
         shell: bash
         run: |
           set -euo pipefail
-          ref="${GITHUB_REF_NAME}"  # p.ej: general/v1.2.3 | element-b/2/v1.0.0
-          if [[ "$ref" == general/* ]]; then
-            version="${ref#general/}"
-            mkdir -p "general/versions/${version}"
-            cp -f "general/terms.md" "general/versions/${version}/terms.md"
-            # Guardar número de versión
-            echo "${version}" > "general/VERSION"
+          mkdir -p public
+
+          ref="${GITHUB_REF_NAME}"  # p.ej: general/v1.2.3 | element-b/abc123/v1.0.0 | element-a/abc123
+
+          if [[ "$ref" == general/v* ]]; then
+            version="${ref#general/}"      # v1.2.3
+            mkdir -p "public/general/versions/${version}"
+            cp -f "general/terms.md" "public/general/versions/${version}/terms.md"
+            echo "${version}" > "public/general/VERSION"
+
           elif [[ "$ref" == element-b/*/v* ]]; then
-            folder="$(echo "$ref" | cut -d'/' -f2)"
-            version="$(echo "$ref" | cut -d'/' -f3)"
-            mkdir -p "element-b/${folder}/versions/${version}"
-            cp -f "element-b/${folder}/terms.md" "element-b/${folder}/versions/${version}/terms.md"
-            # Guardar número de versión
-            echo "${version}" > "element-b/${folder}/VERSION"
+            pocket_id="$(echo "$ref" | cut -d'/' -f2)"
+            version="$(echo "$ref" | cut -d'/' -f3)"   # v1.0.0
+            mkdir -p "public/element-b/${pocket_id}/versions/${version}"
+            cp -f "element-b/${pocket_id}/terms.md" "public/element-b/${pocket_id}/versions/${version}/terms.md"
+            echo "${version}" > "public/element-b/${pocket_id}/VERSION"
+
+          elif [[ "$ref" == element-a/* ]]; then
+            pool_id="${ref#element-a/}"
+            mkdir -p "public/element-a/${pool_id}"
+            cp -f "element-a/${pool_id}/terms.md" "public/element-a/${pool_id}/terms.md"
+            echo "${pool_id}" > "public/element-a/${pool_id}/VERSION"
+          else
+            echo "Tag no reconocido: ${ref}" >&2
+            exit 1
           fi
 
-      - name: Handle element-a
-        if: startsWith(github.ref, 'refs/tags/element-a/')
-        shell: bash
-        run: |
-          set -euo pipefail
-          ref="${GITHUB_REF_NAME}"  # p.ej: element-a/1
-          folder="$(echo "$ref" | cut -d'/' -f2)"
-          # Guardar número de versión
-          echo "${folder}" > "element-a/${folder}/VERSION"
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Deploy to gh-pages (keep history)
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          path: '.'
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: public
+          keep_files: true
+          user_name: github-actions[bot]
+          user_email: 41898282+github-actions[bot]@users.noreply.github.com
