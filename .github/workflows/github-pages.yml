@@ -7,7 +7,8 @@ on:
       - 'element-b/*/v*'     # ej: element-b/abc123/v1.0.0
       - 'general/v*'         # ej: general/v1.2.3
   workflow_dispatch:
-
+permissions:
+  contents: write
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
