@@ -1,2 +1,2 @@
 ### Example general
-v6.0
+v7.0
