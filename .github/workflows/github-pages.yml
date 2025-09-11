@@ -3,12 +3,14 @@ name: Publish versioned Terms (incremental)
 on:
   push:
     tags:
-      - 'element-a/*'        # ej: element-a/abc123
-      - 'element-b/*/v*'     # ej: element-b/abc123/v1.0.0
-      - 'general/v*'         # ej: general/v1.2.3
+      - 'element-a/*'
+      - 'element-b/*/v*'
+      - 'general/v*'
   workflow_dispatch:
+
 permissions:
   contents: write
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -16,33 +18,85 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           fetch-depth: 0
+
       - name: Prepare versioned paths
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p public
+          # servir archivos sin extensión
+          touch public/.nojekyll
 
-          ref="${GITHUB_REF_NAME}"  # p.ej: general/v1.2.3 | element-b/abc123/v1.0.0 | element-a/abc123
+          ref="${GITHUB_REF_NAME}"  # ej: general/v1.2.3 | element-b/abc123/v1.0.0 | element-a/abc123
+
+          write_redirect () {
+            local base="$1" ; local target="$2"
+            mkdir -p "$base"
+            printf '%s\n' \
+              '<!doctype html><meta charset="utf-8"><title>Redirecting…</title>' \
+              "<script>location.replace('${target}');</script>" \
+              > "${base}/index.html"
+          }
 
           if [[ "$ref" == general/v* ]]; then
-            version="${ref#general/}"      # v1.2.3
+            version="${ref#general/}"      # vX.Y.Z
+
+            # 1) versión inmutable
             mkdir -p "public/general/versions/${version}"
             cp -f "general/terms.md" "public/general/versions/${version}/terms.md"
-            echo "${version}" > "public/general/VERSION"
+
+            # 2) punteros a "última"
+            printf '%s' "${version}" > "public/general/VERSION"
+            printf '%s' "${version}" > "public/general/VERSION.txt"
+
+            # 3) alias estables
+            rm -rf "public/general/latest"
+            cp -r "public/general/versions/${version}" "public/general/latest"
+            cp -f "public/general/versions/${version}/terms.md" "public/general/terms.md"
+
+            # 4) URL corta: /general/ → latest/
+            write_redirect "public/general" "latest/"
 
           elif [[ "$ref" == element-b/*/v* ]]; then
             pocket_id="$(echo "$ref" | cut -d'/' -f2)"
-            version="$(echo "$ref" | cut -d'/' -f3)"   # v1.0.0
+            version="$(echo "$ref" | cut -d'/' -f3)"   # vX.Y.Z
+
+            # 1) versión inmutable
             mkdir -p "public/element-b/${pocket_id}/versions/${version}"
             cp -f "element-b/${pocket_id}/terms.md" "public/element-b/${pocket_id}/versions/${version}/terms.md"
-            echo "${version}" > "public/element-b/${pocket_id}/VERSION"
+
+            # 2) punteros a "última"
+            printf '%s' "${version}" > "public/element-b/${pocket_id}/VERSION"
+            printf '%s' "${version}" > "public/element-b/${pocket_id}/VERSION.txt"
+
+            # 3) alias estables
+            rm -rf "public/element-b/${pocket_id}/latest"
+            cp -r "public/element-b/${pocket_id}/versions/${version}" "public/element-b/${pocket_id}/latest"
+            cp -f "public/element-b/${pocket_id}/versions/${version}/terms.md" "public/element-b/${pocket_id}/terms.md"
+
+            # 4) URL corta: /element-b/<id>/ → latest/
+            write_redirect "public/element-b/${pocket_id}" "latest/"
 
           elif [[ "$ref" == element-a/* ]]; then
             pool_id="${ref#element-a/}"
+
+            # vigente por pool (sin carpeta versions)
             mkdir -p "public/element-a/${pool_id}"
             cp -f "element-a/${pool_id}/terms.md" "public/element-a/${pool_id}/terms.md"
-            echo "${pool_id}" > "public/element-a/${pool_id}/VERSION"
+
+            # puntero/metadata
+            printf '%s' "${ref}" > "public/element-a/${pool_id}/VERSION.txt"
+
+            # alias latest por consistencia
+            rm -rf "public/element-a/${pool_id}/latest"
+            mkdir -p "public/element-a/${pool_id}/latest"
+            cp -f "public/element-a/${pool_id}/terms.md" "public/element-a/${pool_id}/latest/terms.md"
+
+            # URL corta: /element-a/<id>/ → latest/
+            write_redirect "public/element-a/${pool_id}" "latest/"
+
           else
             echo "Tag no reconocido: ${ref}" >&2
             exit 1
