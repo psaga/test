@@ -73,14 +73,14 @@ jobs:
           OWNER="${GITHUB_REPOSITORY_OWNER:-${GITHUB_REPOSITORY%%/*}}"
           REPO="${GITHUB_REPOSITORY#*/}"
           BASE_URL="https://${OWNER}.github.io/${REPO}"
-
+      
           if [[ "$ref" == general/v* ]]; then
             version="${ref#general/}"
             FILE="public/general/versions/${version}/terms.md"
             DEST_DIR_VERSION="public/general/versions/${version}"
             DEST_DIR_LATEST="public/general"
             element="general"
-
+      
           elif [[ "$ref" == element-b/*/v* ]]; then
             folder="$(echo "$ref" | cut -d'/' -f2)"
             version="$(echo "$ref" | cut -d'/' -f3)"
@@ -88,7 +88,7 @@ jobs:
             DEST_DIR_VERSION="public/element-b/${folder}/versions/${version}"
             DEST_DIR_LATEST="public/element-b/${folder}"
             element="element-b"
-
+      
           elif [[ "$ref" == element-a/* ]]; then
             folder="${ref#element-a/}"
             FILE="public/element-a/${folder}/terms.md"
@@ -96,21 +96,27 @@ jobs:
             DEST_DIR_LATEST=""
             element="element-a"
             version="${folder}"
-
+      
           else
             echo "Tag no reconocido: ${ref}" >&2
             exit 1
           fi
-
+      
           [[ -f "$FILE" ]] || { echo "File not found: $FILE" >&2; exit 1; }
-          sed -i 's/\r$//' "$FILE"  # normalizar EOL
-
+      
+          # 🔹 Normalizar EOL a LF
+          sed -i 's/\r$//' "$FILE"
+      
+          # 🔹 Forzar salto de línea al final si no existe
+          tail -c1 "$FILE" | read -r _ || echo >> "$FILE"
+      
+          # Calcular hash en formato SRI
           B64=$(openssl dgst -sha256 -binary "$FILE" | base64)
           INTEGRITY="sha256-${B64}"
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           REL_PATH="${FILE#public/}"
           URL="${BASE_URL}/${REL_PATH}"
-
+      
           cat > "${DEST_DIR_VERSION}/integrity.json" <<EOF
           {
             "element": "${element}",
@@ -121,7 +127,7 @@ jobs:
             "createdAt": "${TS}"
           }
           EOF
-
+      
           if [[ -n "${DEST_DIR_LATEST}" ]]; then
             cp -f "${DEST_DIR_VERSION}/integrity.json" "${DEST_DIR_LATEST}/integrity.json"
           fi
