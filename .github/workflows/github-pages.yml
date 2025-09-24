@@ -10,14 +10,9 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   build-and-deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -25,9 +20,6 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
 
       - name: Prepare paths
         shell: bash
@@ -144,5 +136,10 @@ jobs:
           # Limpiar
           rm private_key.pem
 
-      - name: Deploy to gh-pages
-        uses: actions/deploy-pages@v4
+      - name: Deploy to gh-pages (keep history)
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: public
+          keep_files: true
