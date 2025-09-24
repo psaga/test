@@ -3,9 +3,9 @@ name: Publish Terms
 on:
   push:
     tags:
-      - 'element-a/*'
-      - 'element-b/*/v*'
-      - 'general/v*'
+      - 'element-a/*'        # element-a: una versión por carpeta (e.g., element-a/1)
+      - 'element-b/*/v*'     # element-b: versiones por release (e.g., element-b/1/v1.0.0)
+      - 'general/v*'         # general: versiones por release (e.g., general/v1.0.0)
   workflow_dispatch:
 
 permissions:
@@ -42,23 +42,23 @@ jobs:
             printf '%s\n' "${version}" > "public/general/version.txt"
 
           elif [[ "$ref" == element-b/*/v* ]]; then
-            pocket_id="$(echo "$ref" | cut -d'/' -f2)"
+            folder="$(echo "$ref" | cut -d'/' -f2)"
             version="$(echo "$ref" | cut -d'/' -f3)"  # vX.Y.Z
 
             # Inmutable por versión
-            mkdir -p "public/element-b/${pocket_id}/versions/${version}"
-            cp -f "element-b/${pocket_id}/terms.md" "public/element-b/${pocket_id}/versions/${version}/terms.md"
+            mkdir -p "public/element-b/${folder}/versions/${version}"
+            cp -f "element-b/${folder}/terms.md" "public/element-b/${folder}/versions/${version}/terms.md"
 
             # Última (sin versión en el path)
-            cp -f "public/element-b/${pocket_id}/versions/${version}/terms.md" "public/element-b/${pocket_id}/terms.md"
-            printf '%s\n' "${version}" > "public/element-b/${pocket_id}/version.txt"
+            cp -f "public/element-b/${folder}/versions/${version}/terms.md" "public/element-b/${folder}/terms.md"
+            printf '%s\n' "${version}" > "public/element-b/${folder}/version.txt"
 
           elif [[ "$ref" == element-a/* ]]; then
-            pool_id="${ref#element-a/}"
+            folder="${ref#element-a/}"
 
-            # Vigente por pool (sin versionado)
-            mkdir -p "public/element-a/${pool_id}"
-            cp -f "element-a/${pool_id}/terms.md" "public/element-a/${pool_id}/terms.md"
+            # Vigente por folder (sin versionado)
+            mkdir -p "public/element-a/${folder}"
+            cp -f "element-a/${folder}/terms.md" "public/element-a/${folder}/terms.md"
 
           else
             echo "Tag no reconocido: ${ref}" >&2
@@ -74,67 +74,57 @@ jobs:
           REPO="${GITHUB_REPOSITORY#*/}"
           BASE_URL="https://${OWNER}.github.io/${REPO}"
 
-          # Crear clave privada desde secret
-          echo "${{ secrets.TERMS_PRIVATE_KEY }}" > private_key.pem
-          chmod 600 private_key.pem
-
           if [[ "$ref" == general/v* ]]; then
             version="${ref#general/}"
-            FILE="public/general/versions/${version}/terms.md"
-            DEST_DIR_VERSION="public/general/versions/${version}"
-            DEST_DIR_LATEST="public/general"
+            source_file="general/terms.md"
+            terms_file="public/general/versions/${version}/terms.md"
+            version_dir="public/general/versions/${version}"
+            latest_dir="public/general"
             element="general"
 
           elif [[ "$ref" == element-b/*/v* ]]; then
             folder="$(echo "$ref" | cut -d'/' -f2)"
             version="$(echo "$ref" | cut -d'/' -f3)"
-            FILE="public/element-b/${folder}/versions/${version}/terms.md"
-            DEST_DIR_VERSION="public/element-b/${folder}/versions/${version}"
-            DEST_DIR_LATEST="public/element-b/${folder}"
+            source_file="element-b/${folder}/terms.md"
+            terms_file="public/element-b/${folder}/versions/${version}/terms.md"
+            version_dir="public/element-b/${folder}/versions/${version}"
+            latest_dir="public/element-b/${folder}"
             element="element-b"
 
           elif [[ "$ref" == element-a/* ]]; then
             folder="${ref#element-a/}"
-            FILE="public/element-a/${folder}/terms.md"
-            DEST_DIR_VERSION="public/element-a/${folder}"
-            DEST_DIR_LATEST=""
+            source_file="element-a/${folder}/terms.md"
+            terms_file="public/element-a/${folder}/terms.md"
+            version_dir="public/element-a/${folder}"
+            latest_dir=""
             element="element-a"
             version="${folder}"
           fi
 
-          [[ -f "$FILE" ]] || { echo "File not found: $FILE" >&2; exit 1; }
-          sed -i 's/\r$//' "$FILE"  # normalizar EOL
+          [[ -f "$terms_file" ]] || { echo "Terms file not found: $terms_file" >&2; exit 1; }
+          sed -i 's/\r$//' "$terms_file"
 
-          # Calcular hash y firma
-          HASH=$(openssl dgst -sha256 -binary "$FILE" | base64)
-          INTEGRITY="sha256-${HASH}"
-          
-          # Firmar el hash
-          echo -n "$HASH" | openssl dgst -sha256 -sign private_key.pem | base64 > "${DEST_DIR_VERSION}/signature.base64"
+          # Calculate git hash
+          git_hash=$(git hash-object "$source_file")
           
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          REL_PATH="${FILE#public/}"
+          REL_PATH="${terms_file#public/}"
           URL="${BASE_URL}/${REL_PATH}"
 
-          cat > "${DEST_DIR_VERSION}/integrity.json" <<EOF
+          cat > "${version_dir}/integrity.json" <<EOF
           {
             "element": "${element}",
             "version": "${version}",
             "url": "${URL}",
             "mimetype": "text/markdown",
-            "integrity": "${INTEGRITY}",
-            "signature": "$(cat ${DEST_DIR_VERSION}/signature.base64)",
+            "gitHash": "${git_hash}",
             "createdAt": "${TS}"
           }
           EOF
 
-          if [[ -n "${DEST_DIR_LATEST}" ]]; then
-            cp -f "${DEST_DIR_VERSION}/integrity.json" "${DEST_DIR_LATEST}/integrity.json"
-            cp -f "${DEST_DIR_VERSION}/signature.base64" "${DEST_DIR_LATEST}/signature.base64"
+          if [[ -n "${latest_dir}" ]]; then
+            cp -f "${version_dir}/integrity.json" "${latest_dir}/integrity.json"
           fi
-
-          # Limpiar
-          rm private_key.pem
 
       - name: Deploy to gh-pages (keep history)
         uses: peaceiris/actions-gh-pages@v3
